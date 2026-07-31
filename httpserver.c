@@ -85,26 +85,26 @@ void invalidCommand(void) {
 }
 
 void error_bad_request(int connfd) {
-    char error[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n";
+    char error[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\nConnection: close\r\n\r\nBad Request\n";
     write_n_bytes(connfd, error, sizeof(error) - 1);
     return;
 }
 
 void error_internal(int connfd) {
     char error[]
-        = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 22\r\n\r\nInternal Server Error\n";
+        = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 22\r\nConnection: close\r\n\r\nInternal Server Error\n";
     write_n_bytes(connfd, error, sizeof(error) - 1);
     return;
 }
 
 void error_not_found(int connfd) {
-    char error[] = "HTTP/1.1 404 Not Found\r\nContent-Length: 10\r\n\r\nNot Found\n";
+    char error[] = "HTTP/1.1 404 Not Found\r\nContent-Length: 10\r\nConnection: close\r\n\r\nNot Found\n";
     write_n_bytes(connfd, error, sizeof(error) - 1);
     return;
 }
 
 void error_forbidden(int connfd) {
-    char error[] = "HTTP/1.1 403 Forbidden\r\nContent-Length: 10\r\n\r\nForbidden\n";
+    char error[] = "HTTP/1.1 403 Forbidden\r\nContent-Length: 10\r\nConnection: close\r\n\r\nForbidden\n";
     write_n_bytes(connfd, error, sizeof(error) - 1);
     return;
 }
@@ -181,6 +181,10 @@ void get_logic(char buf[BUFFER_SIZE], regmatch_t pmatch[], int connfd) {
     reader_lock(lock);
 
     int read_fd = open(uri, O_RDONLY, 0);
+    if (read_fd == -1) {
+        log_request("GET", uri, 500, req_id);
+        return;
+    }
 
     struct stat st;
 
@@ -207,7 +211,7 @@ void get_logic(char buf[BUFFER_SIZE], regmatch_t pmatch[], int connfd) {
 
     char ok_status[128];
     int len = snprintf(
-        ok_status, sizeof(ok_status), "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\n\r\n", st.st_size);
+        ok_status, sizeof(ok_status), "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\nConnection: close\r\n\r\n", st.st_size);
     write_n_bytes(connfd, ok_status, len);
     log_request("GET", uri, 200, req_id);
 
@@ -345,11 +349,11 @@ void put_logic(char buf[BUFFER_SIZE], regmatch_t pmatch[], int connfd, int initi
     close(write_fd);
 
     if (!existed) {
-        char response[] = "HTTP/1.1 201 Created\r\nContent-Length: 8\r\n\r\nCreated\n";
+        char response[] = "HTTP/1.1 201 Created\r\nContent-Length: 8\r\nConnection: close\r\n\r\nCreated\n";
         write_n_bytes(connfd, response, strlen(response));
         log_request("PUT", uri, 201, req_id);
     } else {
-        char response[] = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nOK\n";
+        char response[] = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nOK\n";
         write_n_bytes(connfd, response, strlen(response));
         log_request("PUT", uri, 200, req_id);
     }
@@ -366,7 +370,7 @@ void parse_through(char buf[BUFFER_SIZE], int connfd, int intial_read) {
 
     // Bad Request Detected if no regex match is found
     if (reg_res != 0) {
-        char error[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n";
+        char error[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\nConnection: close\r\n\r\nBad Request\n";
         write_n_bytes(connfd, error, sizeof(error) - 1);
         regfree(&re);
         return;
@@ -376,7 +380,7 @@ void parse_through(char buf[BUFFER_SIZE], int connfd, int intial_read) {
 
     // An HTTP version mismatch has been detected
     if (version_len != 8 || strncmp(buf + pmatch[3].rm_so, "HTTP/1.1", 8) != 0) {
-        char error[] = "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\n\r\nVersion "
+        char error[] = "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\nConnection: close\r\n\r\nVersion "
                        "Not Supported\n";
         write_n_bytes(connfd, error, sizeof(error) - 1);
         regfree(&re);
@@ -398,7 +402,7 @@ void parse_through(char buf[BUFFER_SIZE], int connfd, int intial_read) {
         // another type of request has been detected that we cannot handle
     } else {
         char error[]
-            = "HTTP/1.1 501 Not Implemented\r\nContent-Length: 16\r\n\r\nNot Implemented\n";
+            = "HTTP/1.1 501 Not Implemented\r\nContent-Length: 16\r\nConnection: close\r\n\r\nNot Implemented\n";
         write_n_bytes(connfd, error, sizeof(error) - 1);
         log_request(method, uri, 501, req_id);
 
@@ -487,7 +491,8 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    request_queue = queue_new(num_threads);
+    // request_queue = queue_new(num_threads);
+    request_queue = queue_new(128);
 
     pthread_t workers[num_threads];
     for (int i = 0; i < num_threads; i++) {
